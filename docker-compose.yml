@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: faceuser
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: facesdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - internal
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://faceuser:${POSTGRES_PASSWORD:-strongpassword}@db/facesdb
+      - ALLOWED_ORIGINS=["http://localhost:5173"]
+    depends_on:
+      - db
+    networks:
+      - internal
+      - external
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    networks:
+      - external
+
+networks:
+  internal:
+  external:
+
+volumes:
+  pgdata:
