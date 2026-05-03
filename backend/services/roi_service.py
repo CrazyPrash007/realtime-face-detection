@@ -1,6 +1,5 @@
-from datetime import datetime
 from typing import Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.db.models import ROIEvent
 
@@ -46,3 +45,18 @@ async def fetch_roi(
     stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_roi(
+    db: AsyncSession,
+    *,
+    session_id: Optional[str] = None,
+) -> int:
+    """Return the total number of ROI events, optionally filtered by session_id."""
+    stmt = select(func.count()).select_from(ROIEvent)
+
+    if session_id:
+        stmt = stmt.where(ROIEvent.session_id == session_id)
+
+    result = await db.execute(stmt)
+    return result.scalar_one()
