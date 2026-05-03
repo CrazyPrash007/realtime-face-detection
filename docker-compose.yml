@@ -25,13 +25,18 @@ services:
   # ---------------------------------------------------------------------------
   # FastAPI backend — internal (db comms) + external (frontend comms)
   # Audit fix #7: healthcheck enables frontend to wait for readiness
+  # DATABASE_URL is loaded from .env directly to avoid URL-encoding issues
+  # when the password contains special characters (e.g. '@').
   # ---------------------------------------------------------------------------
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    env_file:
+      - .env
     environment:
-      DATABASE_URL:    postgresql+asyncpg://${POSTGRES_USER:-faceuser}:${POSTGRES_PASSWORD:-strongpassword}@db/${POSTGRES_DB:-facesdb}
+      # Explicit override so all Docker-accessible origins are whitelisted.
+      # All other settings (DATABASE_URL, SECRET_KEY, etc.) come from .env.
       ALLOWED_ORIGINS: '["http://localhost:5173","http://localhost:80","http://localhost"]'
     depends_on:
       db:
