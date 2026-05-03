@@ -3,9 +3,11 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # database
     DATABASE_URL: str
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
-    POSTGRES_DB: str
+    # These are used by the Postgres Docker image, not directly by the app.
+    # Making them optional avoids a ValidationError when they are absent.
+    POSTGRES_USER: str = "faceuser"
+    POSTGRES_PASSWORD: str = "strongpassword"
+    POSTGRES_DB: str = "facesdb"
 
     # backend
     ALLOWED_ORIGINS: list[str] = ["http://localhost:5173"]
