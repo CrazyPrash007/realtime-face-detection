@@ -9,6 +9,7 @@ A fully containerised system that accepts a live webcam feed over WebSocket, det
 
 ## Architecture
 
+![Architecture Diagram](assets/architecture.png)
 ```
 Browser (React/Vite)
 │
