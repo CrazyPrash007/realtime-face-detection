@@ -30,7 +30,7 @@ from backend.api.routes.roi import router as roi_router
 from backend.api.routes.stream import router as stream_router
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=settings.LOG_LEVEL.upper(),
     format="%(asctime)s | %(levelname)-8s | %(name)s — %(message)s",
 )
 logger = logging.getLogger(__name__)

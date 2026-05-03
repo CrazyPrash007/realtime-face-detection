@@ -30,6 +30,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.config import settings
 from backend.services.roi_service import save_roi
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ logger = logging.getLogger(__name__)
 _mp_face = mp.solutions.face_detection
 _detector = _mp_face.FaceDetection(
     model_selection=0,       # 0 = short-range model (≤ 2 m); best for webcam
-    min_detection_confidence=0.5,
+    min_detection_confidence=settings.MEDIAPIPE_CONFIDENCE,
 )
 
 # Bounding-box style constants
