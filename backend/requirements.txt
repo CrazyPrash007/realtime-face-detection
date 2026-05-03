@@ -1,12 +1,25 @@
-fastapi
-uvicorn[standard]
-pydantic-settings
-pydantic
-SQLAlchemy
-asyncpg
-databases
-mediapipe
-Pillow
-pytest
-httpx
-websockets
+# Audit fix #5: all versions pinned for reproducible builds.
+# "Can a stranger run this in 5 minutes?" — yes, with these exact pins.
+
+# --- Web framework ---
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# --- Config ---
+pydantic-settings==2.2.1
+pydantic==2.7.1
+
+# --- Database (async) ---
+SQLAlchemy[asyncio]==2.0.30
+asyncpg==0.29.0
+
+# --- Computer vision (NO OpenCV) ---
+mediapipe==0.10.14
+Pillow==10.3.0
+numpy==1.26.4
+
+# --- Testing ---
+pytest==8.2.0
+pytest-asyncio==0.23.6
+httpx==0.27.0
+anyio==4.3.0

@@ -1,43 +1,76 @@
 version: '3.8'
 
 services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — runs on the internal network only, port NOT exposed to host
+  # ---------------------------------------------------------------------------
   db:
-    image: postgres:15
+    image: postgres:15-alpine
     environment:
-      POSTGRES_USER: faceuser
+      POSTGRES_USER:     ${POSTGRES_USER:-faceuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
-      POSTGRES_DB: facesdb
+      POSTGRES_DB:       ${POSTGRES_DB:-facesdb}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - internal
-    restart: always
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-faceuser} -d ${POSTGRES_DB:-facesdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # ---------------------------------------------------------------------------
+  # FastAPI backend — internal (db comms) + external (frontend comms)
+  # Audit fix #7: healthcheck enables frontend to wait for readiness
+  # ---------------------------------------------------------------------------
   backend:
     build:
-      context: ./backend
-    ports:
-      - "8000:8000"
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
-      - DATABASE_URL=postgresql+asyncpg://faceuser:${POSTGRES_PASSWORD:-strongpassword}@db/facesdb
-      - ALLOWED_ORIGINS=["http://localhost:5173"]
+      DATABASE_URL:    postgresql+asyncpg://${POSTGRES_USER:-faceuser}:${POSTGRES_PASSWORD:-strongpassword}@db/${POSTGRES_DB:-facesdb}
+      ALLOWED_ORIGINS: '["http://localhost:5173","http://localhost:80","http://localhost"]'
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - internal
       - external
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
+  # ---------------------------------------------------------------------------
+  # React frontend (nginx) — external network only
+  # Audit fix #7: waits for backend to be healthy before starting
+  # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
     networks:
       - external
+    restart: unless-stopped
 
+# ---------------------------------------------------------------------------
+# Networks
+# internal — backend <-> db  (database is NOT reachable from the host)
+# external — frontend <-> backend
+# ---------------------------------------------------------------------------
 networks:
   internal:
+    internal: true   # no outbound internet access; db is isolated
   external:
 
 volumes:
