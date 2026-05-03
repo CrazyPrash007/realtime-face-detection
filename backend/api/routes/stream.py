@@ -6,11 +6,20 @@ Protocol:
         1. Client connects (no session_id needed).
         2. Server accepts and immediately sends {"session_id": "<uuid>"}.
         3. Client sends raw JPEG bytes for each frame.
-        4. Server runs face detection and broadcasts processed frame to viewers.
+        4. Server runs face detection, persists ROI events, and broadcasts
+           the annotated frame to all viewers in the same session.
 
     /stream/view?session_id=<uuid>  — Viewer (display panel)
-        1. Client connects with an existing session_id (obtained from the upload socket).
-        2. Server registers as a viewer and forwards processed frames as binary messages.
+        1. Client connects with an existing session_id (obtained from the
+           upload socket's first message).
+        2. Server registers as a viewer and forwards processed frames as
+           binary WebSocket messages.
+
+Transaction strategy:
+    Each frame that produces a detection is committed immediately so that
+    the REST /api/v1/roi endpoint can see the data without waiting for the
+    WebSocket to close.  A fresh AsyncSession is opened per frame to keep
+    transactions short and avoid long-lived session state accumulation.
 """
 
 from __future__ import annotations
@@ -22,7 +31,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
 from backend.api.connection_manager import manager
 from backend.core.config import settings
-from backend.db.database import get_db
+from backend.db.database import AsyncSessionLocal
 from backend.services.face_service import process_frame
 
 logger = logging.getLogger(__name__)
@@ -36,8 +45,14 @@ async def upload_stream(websocket: WebSocket) -> None:
     Uploader endpoint.
 
     The backend generates the session_id to prevent clients from hijacking
-    each other's streams. The generated id is sent back as the very first
+    each other's streams.  The generated id is sent back as the very first
     message so the frontend can share it with the viewer panel.
+
+    A fresh database session is created for every frame that is processed so
+    that:
+    - Each detection commit is immediately visible to the REST API.
+    - No long-lived session accumulates unflushed state.
+    - A single bad frame cannot roll back previous detections.
     """
     await websocket.accept()
 
@@ -47,25 +62,36 @@ async def upload_stream(websocket: WebSocket) -> None:
     logger.info("Upload session started: %s", session_id)
 
     try:
-        async for db in get_db():
-            while True:
+        while True:
+            try:
+                raw_bytes: bytes = await websocket.receive_bytes()
+            except WebSocketDisconnect:
+                logger.info("Uploader disconnected: %s", session_id)
+                return
+
+            # Frame-size cap — protects against DoS via oversized payloads.
+            if len(raw_bytes) > settings.MAX_FRAME_BYTES:
+                logger.warning(
+                    "Frame too large (%d bytes) from session %s — skipping.",
+                    len(raw_bytes),
+                    session_id,
+                )
+                continue
+
+            # Open a fresh session per frame so every detected face is
+            # committed immediately and visible to concurrent REST queries.
+            async with AsyncSessionLocal() as db:
                 try:
-                    raw_bytes: bytes = await websocket.receive_bytes()
-                except WebSocketDisconnect:
-                    logger.info("Uploader disconnected: %s", session_id)
-                    return
-
-                # Audit fix — enforce frame size cap against DoS.
-                if len(raw_bytes) > settings.MAX_FRAME_BYTES:
-                    logger.warning(
-                        "Frame too large (%d bytes) from session %s, skipping.",
-                        len(raw_bytes),
-                        session_id,
+                    processed: bytes = await process_frame(raw_bytes, session_id, db)
+                    await db.commit()          # ← makes ROI rows visible NOW
+                except Exception:
+                    await db.rollback()
+                    logger.exception(
+                        "Error processing frame for session %s", session_id
                     )
-                    continue
+                    processed = raw_bytes      # pass raw frame through on error
 
-                processed: bytes = await process_frame(raw_bytes, session_id, db)
-                await manager.broadcast(session_id, processed)
+            await manager.broadcast(session_id, processed)
 
     except WebSocketDisconnect:
         logger.info("Upload session ended: %s", session_id)
@@ -83,7 +109,7 @@ async def view_stream(
     Viewer endpoint.
 
     Clients must supply the session_id obtained from the uploader's first
-    message. Processed frames are forwarded as binary WebSocket messages.
+    message.  Processed frames are forwarded as binary WebSocket messages.
     """
     try:
         await manager.connect_viewer(session_id, websocket)
